@@ -8,6 +8,12 @@ struct Vertex {
     position: [f32; 2],
 }
 
+impl Vertex {
+    fn new(x: f32, y: f32) -> Vertex {
+        Vertex { position: [x, y] }
+    }
+}
+
 implement_vertex!(Vertex, position);
 
 pub struct Painter<'a> {
@@ -42,7 +48,7 @@ impl<'a> Painter<'a> {
 
 pub fn animation<F>(mut draw: F) -> !
 where
-    F: 'static + FnMut(Painter),
+    F: 'static + FnMut(Painter, f64, Option<(f64, f64)>),
 {
     let event_loop = glutin::event_loop::EventLoop::new();
     let wb = glutin::window::WindowBuilder::new();
@@ -50,16 +56,12 @@ where
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
     let mut verticies = Vec::new();
-    verticies.push(Vertex {
-        position: [0.0, 0.0],
-    });
+    verticies.push(Vertex::new(0.0, 0.0));
     {
         let n = 30;
         for i in 0..(n + 1) {
             let a = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
-            verticies.push(Vertex {
-                position: [a.cos(), a.sin()],
-            });
+            verticies.push(Vertex::new(a.cos(), a.sin()));
         }
     }
     let verticies = glium::VertexBuffer::new(&display, &verticies).unwrap();
@@ -93,6 +95,8 @@ where
 
     let mut last_time = std::time::Instant::now();
 
+    let mut cursor = None;
+
     event_loop.run(move |event, _, control_flow| {
         let next_frame_time =
             std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667);
@@ -104,10 +108,7 @@ where
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                     return;
                 }
-                glutin::event::WindowEvent::CursorMoved { .. } => (),
-                glutin::event::WindowEvent::Resized { .. } => (),
-                glutin::event::WindowEvent::Moved { .. } => (),
-                _ => return,
+                _ => (),
             },
             glutin::event::Event::NewEvents(glutin::event::StartCause::ResumeTimeReached {
                 ..
@@ -115,13 +116,14 @@ where
             _ => return,
         }
 
-        println!("{}", (std::time::Instant::now() - last_time).as_secs_f64());
+        let dt = (std::time::Instant::now() - last_time).as_secs_f64();
         last_time = std::time::Instant::now();
 
         let mut target = display.draw();
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
         let (width, height) = target.get_dimensions();
+
         let aspect_ratio = width as f32 / height as f32;
         let view = if aspect_ratio < 1.0 {
             Mat4::diag(1.0, aspect_ratio, 1.0, 1.0)
@@ -129,13 +131,36 @@ where
             Mat4::diag(1.0 / aspect_ratio, 1.0, 1.0, 1.0)
         };
 
-        draw(Painter {
-            view: view,
-            target: &mut target,
-            verticies: &verticies,
-            indices: &indices,
-            program: &program,
-        });
+        match &event {
+            glutin::event::Event::WindowEvent { event, .. } => match event {
+                glutin::event::WindowEvent::CursorMoved { position, .. } => {
+                    let x = position.x / width as f64 * 2.0 - 1.0;
+                    let y = 1.0 - position.y / height as f64 * 2.0;
+                    cursor = Some((
+                        x / view.as_array()[0][0] as f64,
+                        y / view.as_array()[1][1] as f64,
+                    ));
+                }
+                glutin::event::WindowEvent::CursorEntered { .. } => {}
+                glutin::event::WindowEvent::CursorLeft { .. } => {
+                    cursor = None;
+                }
+                _ => (),
+            },
+            _ => (),
+        }
+
+        draw(
+            Painter {
+                view: view,
+                target: &mut target,
+                verticies: &verticies,
+                indices: &indices,
+                program: &program,
+            },
+            dt,
+            cursor,
+        );
 
         target.finish().unwrap();
     });

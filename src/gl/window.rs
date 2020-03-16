@@ -48,7 +48,7 @@ impl<'a> Painter<'a> {
 
 pub fn animation<F>(mut draw: F) -> !
 where
-    F: 'static + FnMut(Painter, f64, Option<(f64, f64)>),
+    F: 'static + FnMut(Painter, f64, Option<(f64, f64)>, bool, bool),
 {
     let event_loop = glutin::event_loop::EventLoop::new();
     let wb = glutin::window::WindowBuilder::new();
@@ -96,6 +96,8 @@ where
     let mut last_time = std::time::Instant::now();
 
     let mut cursor = None;
+    let mut left = false;
+    let mut right = false;
 
     event_loop.run(move |event, _, control_flow| {
         let next_frame_time =
@@ -141,6 +143,15 @@ where
                         y / view.as_array()[1][1] as f64,
                     ));
                 }
+                glutin::event::WindowEvent::MouseInput { state, button, .. } => match button {
+                    glutin::event::MouseButton::Left => {
+                        left = state == &glutin::event::ElementState::Pressed
+                    }
+                    glutin::event::MouseButton::Right => {
+                        right = state == &glutin::event::ElementState::Pressed
+                    }
+                    _ => (),
+                },
                 glutin::event::WindowEvent::CursorEntered { .. } => {}
                 glutin::event::WindowEvent::CursorLeft { .. } => {
                     cursor = None;
@@ -160,6 +171,8 @@ where
             },
             dt,
             cursor,
+            left,
+            right,
         );
 
         target.finish().unwrap();

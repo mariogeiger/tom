@@ -19,8 +19,8 @@ implement_vertex!(Vertex, position);
 pub struct Painter<'a> {
     view: Mat4,
     target: &'a mut glium::Frame,
-    verticies: &'a glium::VertexBuffer<Vertex>,
-    indices: &'a glium::index::NoIndices,
+    circle_verticies: &'a glium::VertexBuffer<Vertex>,
+    square_verticies: &'a glium::VertexBuffer<Vertex>,
     program: &'a glium::Program,
 }
 
@@ -36,8 +36,28 @@ impl<'a> Painter<'a> {
 
         self.target
             .draw(
-                self.verticies,
-                self.indices,
+                self.circle_verticies,
+                &glium::index::NoIndices(glium::index::PrimitiveType::TriangleFan),
+                self.program,
+                &uniform,
+                &params,
+            )
+            .unwrap();
+    }
+
+    pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 3]) {
+        let uniform = uniform! {
+            model: (Mat4::translation(x, y, 0.0) * Mat4::diag(w, h, 1.0, 1.0)).as_array(),
+            view: self.view.as_array(),
+            uniform_color: color,
+        };
+
+        let params = Default::default();
+
+        self.target
+            .draw(
+                self.square_verticies,
+                &glium::index::NoIndices(glium::index::PrimitiveType::TriangleFan),
                 self.program,
                 &uniform,
                 &params,
@@ -55,17 +75,23 @@ where
     let cb = glutin::ContextBuilder::new();
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
-    let mut verticies = Vec::new();
-    verticies.push(Vertex::new(0.0, 0.0));
+    let mut circle_verticies = Vec::new();
+    circle_verticies.push(Vertex::new(0.0, 0.0));
     {
         let n = 30;
         for i in 0..(n + 1) {
             let a = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
-            verticies.push(Vertex::new(a.cos(), a.sin()));
+            circle_verticies.push(Vertex::new(a.cos(), a.sin()));
         }
     }
-    let verticies = glium::VertexBuffer::new(&display, &verticies).unwrap();
-    let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleFan);
+    let circle_verticies = glium::VertexBuffer::new(&display, &circle_verticies).unwrap();
+
+    let mut square_verticies = Vec::new();
+    square_verticies.push(Vertex::new(0.0, 0.0));
+    square_verticies.push(Vertex::new(1.0, 0.0));
+    square_verticies.push(Vertex::new(1.0, 1.0));
+    square_verticies.push(Vertex::new(0.0, 1.0));
+    let square_verticies = glium::VertexBuffer::new(&display, &square_verticies).unwrap();
 
     let vertex = r#"
     #version 150
@@ -165,8 +191,8 @@ where
             Painter {
                 view: view,
                 target: &mut target,
-                verticies: &verticies,
-                indices: &indices,
+                circle_verticies: &circle_verticies,
+                square_verticies: &square_verticies,
                 program: &program,
             },
             dt,

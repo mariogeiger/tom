@@ -6,12 +6,11 @@ impl V {
         V(x, y)
     }
     pub fn norm(&self) -> f64 {
-        dot(*self, *self).sqrt()
+        V::dot(*self, *self).sqrt()
     }
-}
-
-pub fn dot(a: V, b: V) -> f64 {
-    a.0 * b.0 + a.1 * b.1
+    pub fn dot(a: V, b: V) -> f64 {
+        a.0 * b.0 + a.1 * b.1
+    }
 }
 
 impl std::ops::Neg for V {

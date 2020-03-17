@@ -32,21 +32,24 @@ struct Dot {
     pos: V,
     vel: V,
     stop: bool,
+    state: bool,
 }
 
 fn main() {
     let mut dots = Vec::new();
 
     let mut rng = thread_rng();
-    for _ in 0..3000 {
+    for _ in 0..6000 {
         let x = V::new(rng.gen_range(-1.0, 1.0), rng.gen_range(-1.0, 1.0));
         let v = 0.5 * V::new(rng.sample(StandardNormal), rng.sample(StandardNormal));
         dots.push(Dot {
             pos: x,
             vel: v,
             stop: false,
+            state: false,
         });
     }
+    dots[0].state = true;
 
     animation(move |mut painter, dt, cursor, left, _right| {
         for a in &mut dots {
@@ -65,6 +68,9 @@ fn main() {
                     if left {
                         for a in &mut dots {
                             a.stop |= (V::new(x, y) - a.pos).norm() < r;
+                            if a.stop {
+                                a.state = false;
+                            }
                         }
 
                         painter.draw_circle(x as f32, y as f32, r as f32, [0.4, 0.0, 0.2]);
@@ -77,7 +83,7 @@ fn main() {
 
         let r = 0.01;
 
-        for a in &mut dots {
+        for a in dots.iter_mut() {
             // move the dot
             if !a.stop {
                 a.pos += dt * a.vel;
@@ -97,18 +103,40 @@ fn main() {
                 a.pos.1 -= 2.0;
             }
 
-            painter.draw_circle(a.pos.0 as f32, a.pos.1 as f32, r as f32, [0.6, 0.85, 1.0]);
+            let color = if a.state {
+                [0.6, 0.85, 1.0]
+            } else {
+                [0.3, 0.4, 0.5]
+            };
+
+            painter.draw_circle(a.pos.0 as f32, a.pos.1 as f32, r as f32, color);
         }
 
+        // collision, for optimization we use a table
         let mut table: HashMap<_, Vec<_>> = HashMap::new();
         for (i, a) in dots.iter().enumerate() {
-            let size = 6.0 * r;
-            let x = (a.pos.0 / size) as isize;
-            let y = (a.pos.1 / size) as isize;
-            table.entry((x, y)).or_default().push(i);
-            table.entry((x, y + 1)).or_default().push(i);
-            table.entry((x + 1, y)).or_default().push(i);
-            table.entry((x + 1, y + 1)).or_default().push(i);
+            let overlap = 1.1 * r;
+            let x = (a.pos.0 / overlap) as isize;
+            let y = (a.pos.1 / overlap) as isize;
+            let size = 4;
+            table.entry((x / size, y / size)).or_default().push(i);
+            match (x % size == 0, y % size == 0) {
+                (false, false) => {}
+                (true, false) => {
+                    table.entry((x / size - 1, y / size)).or_default().push(i);
+                }
+                (false, true) => {
+                    table.entry((x / size, y / size - 1)).or_default().push(i);
+                }
+                (true, true) => {
+                    table.entry((x / size - 1, y / size)).or_default().push(i);
+                    table.entry((x / size, y / size - 1)).or_default().push(i);
+                    table
+                        .entry((x / size - 1, y / size - 1))
+                        .or_default()
+                        .push(i);
+                }
+            }
         }
 
         for list in table.values_mut() {
@@ -118,6 +146,9 @@ fn main() {
                         let n = b.pos - a.pos;
                         let nn = V::dot(n, n);
                         if nn < 4.0 * r * r {
+                            let state = a.state || b.state;
+                            a.state = state;
+                            b.state = state;
                             match (a.stop, b.stop) {
                                 (false, false) => {
                                     let vf = (a.vel + b.vel) / 2.0;

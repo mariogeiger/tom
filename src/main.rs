@@ -7,27 +7,10 @@ mod vec2;
 
 use gl::window::animation;
 use rand::{thread_rng, Rng};
-use rand_distr::StandardNormal;
-use std::collections::HashMap;
+use rand_distr::{Cauchy, Uniform, Bernoulli};
 use vec2::V;
 
-fn index_twice<T>(slc: &mut [T], a: usize, b: usize) -> Option<(&mut T, &mut T)> {
-    if a == b {
-        None
-    } else {
-        if a >= slc.len() || b >= slc.len() {
-            None
-        } else {
-            // safe because a, b are in bounds and distinct
-            unsafe {
-                let ar = &mut *(slc.get_unchecked_mut(a) as *mut _);
-                let br = &mut *(slc.get_unchecked_mut(b) as *mut _);
-                Some((ar, br))
-            }
-        }
-    }
-}
-
+#[derive(Clone)]
 struct Dot {
     pos: V,
     vel: V,
@@ -39,9 +22,9 @@ fn main() {
     let mut dots = Vec::new();
 
     let mut rng = thread_rng();
-    for _ in 0..6000 {
+    for _ in 0..100 {
         let x = V::new(rng.gen_range(-1.0, 1.0), rng.gen_range(-1.0, 1.0));
-        let v = 0.5 * V::new(rng.sample(StandardNormal), rng.sample(StandardNormal));
+        let v = V::new(0.0, 0.0);
         dots.push(Dot {
             pos: x,
             vel: v,
@@ -51,7 +34,13 @@ fn main() {
     }
     dots[0].state = true;
 
+    let mut t = 0.0;
+    let mut t_montecarlo = 0.0;
+    let mut i_montecarlo = 0;
+
     animation(move |mut painter, dt, cursor, left, _right| {
+        t += dt;
+
         for a in &mut dots {
             a.stop = false;
         }
@@ -81,26 +70,12 @@ fn main() {
             }
         }
 
-        let r = 0.01;
+        let r = 0.02;
 
         for a in dots.iter_mut() {
             // move the dot
             if !a.stop {
                 a.pos += dt * a.vel;
-            }
-
-            // priodic boundary condition
-            if a.pos.0 < -1.0 {
-                a.pos.0 += 2.0;
-            }
-            if a.pos.0 > 1.0 {
-                a.pos.0 -= 2.0;
-            }
-            if a.pos.1 < -1.0 {
-                a.pos.1 += 2.0;
-            }
-            if a.pos.1 > 1.0 {
-                a.pos.1 -= 2.0;
             }
 
             let color = if a.state {
@@ -112,80 +87,45 @@ fn main() {
             painter.draw_circle(a.pos.0 as f32, a.pos.1 as f32, r as f32, color);
         }
 
-        // collision, for optimization we use a table
-        let mut table: HashMap<_, Vec<_>> = HashMap::new();
-        for (i, a) in dots.iter().enumerate() {
-            let overlap = 1.1 * r;
-            let x = (a.pos.0 / overlap) as isize;
-            let y = (a.pos.1 / overlap) as isize;
-            let size = 4;
-            table.entry((x / size, y / size)).or_default().push(i);
-            match (x % size == 0, y % size == 0) {
-                (false, false) => {}
-                (true, false) => {
-                    table.entry((x / size - 1, y / size)).or_default().push(i);
-                }
-                (false, true) => {
-                    table.entry((x / size, y / size - 1)).or_default().push(i);
-                }
-                (true, true) => {
-                    table.entry((x / size - 1, y / size)).or_default().push(i);
-                    table.entry((x / size, y / size - 1)).or_default().push(i);
-                    table
-                        .entry((x / size - 1, y / size - 1))
-                        .or_default()
-                        .push(i);
-                }
+        if t > t_montecarlo {
+            let dmt = 0.001;
+            t_montecarlo = t + dmt;
+
+            // dots[i_montecarlo].vel = V::new(0.0, 0.0);
+            i_montecarlo = (i_montecarlo + 1) % dots.len();
+
+            let phi = rng.sample(Uniform::new(0.0, 2.0 * std::f64::consts::PI));
+            let dx = rng.sample(Cauchy::new(0.0, 0.05).unwrap()) * V::new(phi.cos(), phi.sin());
+
+            fn pairwise_potential(r: f64) -> f64 {
+                let d = 0.04;
+                4.0 * ((d / r).powi(12) - (d / r).powi(6))
+            }
+
+            let a = dots[i_montecarlo].clone();
+
+            let mut d_energy = 0.0;
+            for b in &dots {
+                let r1 = (a.pos - b.pos).norm();
+                let r2 = (a.pos + dx - b.pos).norm();
+
+                if r1 == 0.0 || r2 == 0.0 { continue; }
+
+                d_energy += pairwise_potential(r1) - pairwise_potential(r2);
+            }
+
+            // global potential
+            let x = V::new(0.0, 0.0);
+            let r1 = (a.pos - x).norm();
+            let r2 = (a.pos + dx - x).norm();
+            d_energy += 10.0 * r1.powi(2) - 10.0 * r2.powi(2);
+            let p = if d_energy > 0.0 { 1.0 } else { d_energy.exp() };
+            println!("{:?}", p);
+
+
+            if rng.sample(Bernoulli::new(p).unwrap()) {
+                dots[i_montecarlo].pos += dx;
             }
         }
-
-        for list in table.values_mut() {
-            for i in 0..list.len() {
-                for j in i + 1..list.len() {
-                    if let Some((a, b)) = index_twice(&mut dots, list[i], list[j]) {
-                        let n = b.pos - a.pos;
-                        let nn = V::dot(n, n);
-                        if nn < 4.0 * r * r {
-                            let state = a.state || b.state;
-                            a.state = state;
-                            b.state = state;
-                            match (a.stop, b.stop) {
-                                (false, false) => {
-                                    let vf = (a.vel + b.vel) / 2.0;
-                                    a.vel -= vf;
-                                    b.vel -= vf;
-                                    let van = V::dot(a.vel, n);
-                                    if van > 0.0 {
-                                        a.vel -= 2.0 * van * n / nn;
-                                        b.vel = -a.vel;
-                                    }
-                                    a.vel += vf;
-                                    b.vel += vf;
-                                }
-                                (false, true) => {
-                                    let van = V::dot(a.vel, n);
-                                    if van > 0.0 {
-                                        a.vel -= 2.0 * van * n / nn;
-                                    }
-                                }
-                                (true, false) => {
-                                    let vbn = V::dot(b.vel, n);
-                                    if vbn < 0.0 {
-                                        b.vel -= 2.0 * vbn * n / nn;
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        painter.draw_rect(-2.0, 1.0, 4.0, 4.0, [0.0, 0.0, 0.0]);
-        painter.draw_rect(-2.0, -1.0, 4.0, -4.0, [0.0, 0.0, 0.0]);
-
-        painter.draw_rect(-1.0, -2.0, -4.0, 4.0, [0.0, 0.0, 0.0]);
-        painter.draw_rect(1.0, -2.0, 4.0, 4.0, [0.0, 0.0, 0.0]);
     });
 }

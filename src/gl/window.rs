@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::gl::math::Mat4;
 use glium::Surface;
 

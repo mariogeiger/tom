@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::gl::math::Mat4;
+use crate::gl::math::{Mat4, Vec4};
 use glium::Surface;
 
 use glium::glutin;
@@ -165,10 +165,9 @@ where
                 glutin::event::WindowEvent::CursorMoved { position, .. } => {
                     let x = position.x / width as f64 * 2.0 - 1.0;
                     let y = 1.0 - position.y / height as f64 * 2.0;
-                    cursor = Some((
-                        x / view.as_array()[0][0] as f64,
-                        y / view.as_array()[1][1] as f64,
-                    ));
+                    let c =
+                        view.inverse().unwrap() * Vec4::from_array([x as f32, y as f32, 0.0, 1.0]);
+                    cursor = Some((c.as_array()[0] as f64, c.as_array()[1] as f64));
                 }
                 glutin::event::WindowEvent::MouseInput { state, button, .. } => match button {
                     glutin::event::MouseButton::Left => {

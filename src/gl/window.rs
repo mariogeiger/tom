@@ -18,7 +18,8 @@ impl Vertex {
 implement_vertex!(Vertex, position);
 
 pub struct Painter<'a> {
-    view: Mat4,
+    pub view: &'a mut Mat4,
+    proj: Mat4,
     target: &'a mut glium::Frame,
     circle_verticies: &'a glium::VertexBuffer<Vertex>,
     square_verticies: &'a glium::VertexBuffer<Vertex>,
@@ -30,6 +31,7 @@ impl<'a> Painter<'a> {
         let uniform = uniform! {
             model: (Mat4::translation(x, y, 0.0) * Mat4::scale(r)).as_array(),
             view: self.view.as_array(),
+            proj: self.proj.as_array(),
             uniform_color: color,
         };
 
@@ -50,6 +52,7 @@ impl<'a> Painter<'a> {
         let uniform = uniform! {
             model: (Mat4::translation(x, y, 0.0) * Mat4::diag(w, h, 1.0, 1.0)).as_array(),
             view: self.view.as_array(),
+            proj: self.proj.as_array(),
             uniform_color: color,
         };
 
@@ -101,9 +104,10 @@ where
 
     uniform mat4 model;
     uniform mat4 view;
+    uniform mat4 proj;
 
     void main() {
-        gl_Position = view * model * vec4(position, 0, 1);
+        gl_Position = proj * view * model * vec4(position, 0, 1);
     }
     "#;
     let fragment = r#"
@@ -125,6 +129,8 @@ where
     let mut cursor = None;
     let mut left = false;
     let mut right = false;
+
+    let mut view = Mat4::identity();
 
     event_loop.run(move |event, _, control_flow| {
         let next_frame_time =
@@ -154,7 +160,7 @@ where
         let (width, height) = target.get_dimensions();
 
         let aspect_ratio = width as f32 / height as f32;
-        let view = if aspect_ratio < 1.0 {
+        let proj = if aspect_ratio < 1.0 {
             Mat4::diag(1.0, aspect_ratio, 1.0, 1.0)
         } else {
             Mat4::diag(1.0 / aspect_ratio, 1.0, 1.0, 1.0)
@@ -166,7 +172,7 @@ where
                     let x = position.x / width as f64 * 2.0 - 1.0;
                     let y = 1.0 - position.y / height as f64 * 2.0;
                     let c =
-                        view.inverse().unwrap() * Vec4::from_array([x as f32, y as f32, 0.0, 1.0]);
+                        (proj * view).inverse().unwrap() * Vec4::from_array([x as f32, y as f32, 0.0, 1.0]);
                     cursor = Some((c.as_array()[0] as f64, c.as_array()[1] as f64));
                 }
                 glutin::event::WindowEvent::MouseInput { state, button, .. } => match button {
@@ -189,7 +195,8 @@ where
 
         draw(
             Painter {
-                view: view,
+                view: &mut view,
+                proj: proj,
                 target: &mut target,
                 circle_verticies: &circle_verticies,
                 square_verticies: &square_verticies,

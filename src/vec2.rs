@@ -76,6 +76,13 @@ impl std::ops::DivAssign<f64> for V {
     }
 }
 
+impl std::ops::MulAssign<f64> for V {
+    fn mul_assign(&mut self, b: f64) {
+        self.0 *= b;
+        self.1 *= b;
+    }
+}
+
 impl std::fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:.3}, {:.3})", self.0, self.1)

@@ -11,13 +11,14 @@ use gl::math::Mat4;
 use gl::window::animation;
 use rand::{thread_rng, Rng};
 use rand_distr::{Bernoulli, Cauchy, Uniform};
+use std::time::{Duration, Instant};
 use vec2::V;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
     Susceptible,
-    Asymptomatic,
-    Infected,
+    Asymptomatic(Instant),
+    Infected(Instant),
     Recovered,
     Dead,
 }
@@ -26,21 +27,21 @@ impl State {
     fn color(&self) -> [f32; 3] {
         match self {
             State::Susceptible => [1.0, 1.0, 1.0],
-            State::Asymptomatic => [1.0, 1.0, 1.0],
-            State::Infected => [1.0, 0.0, 0.0],
-            State::Recovered => [1.0, 1.0, 1.0],
-            State::Dead => [1.0, 1.0, 1.0],
+            State::Asymptomatic(_) => [1.0, 1.0, 1.0],
+            State::Infected(_) => [1.0, 0.0, 0.0],
+            State::Recovered => [0.0, 1.0, 0.0],
+            State::Dead => [1.0, 0.0, 1.0],
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Dot {
     new_pos: V,
-    new_t: std::time::Instant,
+    new_t: Instant,
 
     last_pos: V,
-    last_t: std::time::Instant,
+    last_t: Instant,
 
     state: State,
 }
@@ -49,10 +50,10 @@ impl Dot {
     fn new(pos: V) -> Dot {
         Dot {
             new_pos: pos,
-            new_t: std::time::Instant::now() + std::time::Duration::from_secs_f64(1.0),
+            new_t: Instant::now() + Duration::from_secs_f64(1.0),
 
             last_pos: pos,
-            last_t: std::time::Instant::now(),
+            last_t: Instant::now(),
 
             state: State::Susceptible,
         }
@@ -65,25 +66,41 @@ impl Dot {
     }
     fn mov(&mut self, new_pos: V, dt: f64) {
         self.last_pos = self.pos();
-        self.last_t = std::time::Instant::now();
+        self.last_t = Instant::now();
 
         self.new_pos = new_pos;
-        self.new_t = std::time::Instant::now() + std::time::Duration::from_secs_f64(dt);
+        self.new_t = Instant::now() + Duration::from_secs_f64(dt);
     }
 }
 
 fn montecarlo(dots: &mut Vec<Dot>) {
     let mut rng = thread_rng();
     for i in 0..dots.len() {
-        let phi = rng.sample(Uniform::new(0.0, 2.0 * std::f64::consts::PI));
-        let dx = rng.sample(Cauchy::new(0.0, 0.10).unwrap()) * V::new(phi.cos(), phi.sin());
+        let a = dots[i].clone();
 
-        fn pairwise_potential(r: f64) -> f64 {
+        if a.state == State::Dead {
+            continue;
+        }
+
+        let mut dx;
+        loop {
+            let phi = rng.sample(Uniform::new(0.0, 2.0 * std::f64::consts::PI));
+            dx = rng.sample(Cauchy::new(0.0, 0.10).unwrap()) * V::new(phi.cos(), phi.sin());
+            let new_pos = a.new_pos + dx;
+
+            if new_pos.norm() < 5.0 {
+                break;
+            }
+        }
+
+        fn pairwise_attractive(r: f64) -> f64 {
             let d = 0.04;
             3.0 * ((d / r).powi(12) - (d / r).powi(6))
         }
-
-        let a = dots[i].clone();
+        fn pairwise_repulsive(r: f64) -> f64 {
+            let d = 0.04;
+            3.0 * (d / r).powi(2)
+        }
 
         let mut d_energy = 0.0;
         for b in dots.iter() {
@@ -94,7 +111,14 @@ fn montecarlo(dots: &mut Vec<Dot>) {
                 continue;
             }
 
-            d_energy += pairwise_potential(r1) - pairwise_potential(r2);
+            d_energy += match (a.state, b.state) {
+                (State::Infected(_), State::Infected(_)) => {
+                    pairwise_attractive(r1) - pairwise_attractive(r2)
+                }
+                (State::Infected(_), _) => pairwise_repulsive(r1) - pairwise_repulsive(r2),
+                (_, State::Infected(_)) => pairwise_repulsive(r1) - pairwise_repulsive(r2),
+                (_, _) => pairwise_attractive(r1) - pairwise_attractive(r2),
+            };
         }
 
         fn global_potential(mut x: V) -> f64 {
@@ -135,10 +159,11 @@ fn main() {
 
     let mut rng = thread_rng();
     for _ in 0..1000 {
-        let x = V::new(rng.gen_range(-3.0, 3.0), rng.gen_range(-3.0, 3.0));
+        let phi = rng.sample(Uniform::new(0.0, 2.0 * std::f64::consts::PI));
+        let x = rng.sample(Uniform::new(0.0, 5.0)) * V::new(phi.cos(), phi.sin());
         dots.push(Dot::new(x));
     }
-    dots[0].state = State::Infected;
+    dots[0].state = State::Asymptomatic(Instant::now() + Duration::from_secs_f64(5.0));
 
     let mut t = 0.0;
     let mut t_montecarlo = 0.0;
@@ -146,50 +171,11 @@ fn main() {
     animation(move |mut painter, dt, _cursor, _left, _right| {
         t += dt;
 
-        // for a in &mut dots {
-        //     a.stop = false;
-        // }
-
-        // if let Some((x, y)) = cursor {
-        //     let r = 0.2;
-
-        //     for px in &[-2.0, 0.0, 2.0] {
-        //         for py in &[-2.0, 0.0, 2.0] {
-        //             // periodic mouse
-        //             let x = x + px;
-        //             let y = y + py;
-
-        //             if left {
-        //                 for a in &mut dots {
-        //                     a.stop |= (V::new(x, y) - a.pos).norm() < r;
-        //                     if a.stop {
-        //                         a.state = false;
-        //                     }
-        //                 }
-
-        //                 painter.draw_circle(x as f32, y as f32, r as f32, [0.4, 0.0, 0.2]);
-        //             } else {
-        //                 painter.draw_circle(x as f32, y as f32, r as f32, [0.1, 0.1, 0.1]);
-        //             }
-        //         }
-        //     }
-        // }
-
-        *painter.view = Mat4::scale(1.0 / 3.0);
+        *painter.view = Mat4::scale(1.0 / 5.0);
 
         let r = 0.02;
 
         for a in dots.iter_mut() {
-            // move the dot
-            // if !a.stop {
-            //     a.pos += dt * a.vel;
-            // }
-
-            // let color = if a.state {
-            //     [0.6, 0.85, 1.0]
-            // } else {
-            //     [0.3, 0.4, 0.5]
-            // };
             let x = a.pos();
             painter.draw_circle(x.0 as f32, x.1 as f32, r as f32, a.state.color());
         }
@@ -203,13 +189,35 @@ fn main() {
                     let (a, b) = index_twice(&mut dots, i, j).unwrap();
                     if (a.pos() - b.pos()).norm() < 3.0 * r {
                         match (a.state, b.state) {
-                            (State::Infected, State::Susceptible) => {
-                                b.state = State::Infected;
+                            (State::Infected(_), State::Susceptible)
+                            | (State::Asymptomatic(_), State::Susceptible) => {
+                                b.state = State::Asymptomatic(
+                                    Instant::now() + Duration::from_secs_f64(5.0),
+                                );
                             }
-                            (State::Susceptible, State::Infected) => {
-                                a.state = State::Infected;
+                            (State::Susceptible, State::Infected(_))
+                            | (State::Susceptible, State::Asymptomatic(_)) => {
+                                a.state = State::Asymptomatic(
+                                    Instant::now() + Duration::from_secs_f64(5.0),
+                                );
                             }
-                            _ => ()
+                            _ => (),
+                        }
+                    }
+                }
+
+                if let State::Asymptomatic(t) = dots[i].state {
+                    if t < Instant::now() {
+                        dots[i].state =
+                            State::Infected(Instant::now() + Duration::from_secs_f64(10.0));
+                    }
+                }
+                if let State::Infected(t) = dots[i].state {
+                    if t < Instant::now() {
+                        if rng.sample(Bernoulli::new(0.5).unwrap()) {
+                            dots[i].state = State::Dead;
+                        } else {
+                            dots[i].state = State::Recovered;
                         }
                     }
                 }

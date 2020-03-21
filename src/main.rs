@@ -13,12 +13,14 @@ use rand::{thread_rng, Rng};
 use rand_distr::{Bernoulli, Cauchy, Uniform};
 use std::time::{Duration, Instant};
 use vec2::V;
+use glium::glutin::event::VirtualKeyCode;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
     Susceptible,
     Asymptomatic(Instant),
     Infected(Instant),
+    Healed(Instant),
     Recovered,
     Dead,
 }
@@ -29,6 +31,7 @@ impl State {
             State::Susceptible => [1.0, 1.0, 1.0],
             State::Asymptomatic(_) => [1.0, 1.0, 1.0],
             State::Infected(_) => [1.0, 0.0, 0.0],
+            State::Healed(_) => [0.0, 0.0, 1.0],
             State::Recovered => [0.0, 1.0, 0.0],
             State::Dead => [1.0, 0.0, 1.0],
         }
@@ -115,8 +118,12 @@ fn montecarlo(dots: &mut Vec<Dot>) {
                 (State::Infected(_), State::Infected(_)) => {
                     pairwise_attractive(r1) - pairwise_attractive(r2)
                 }
-                (State::Infected(_), _) => pairwise_repulsive(r1) - pairwise_repulsive(r2),
-                (_, State::Infected(_)) => pairwise_repulsive(r1) - pairwise_repulsive(r2),
+                (State::Infected(_), _) | (State::Healed(_), _) => {
+                    pairwise_repulsive(r1) - pairwise_repulsive(r2)
+                }
+                (_, State::Infected(_)) | (_, State::Healed(_)) => {
+                    pairwise_repulsive(r1) - pairwise_repulsive(r2)
+                }
                 (_, _) => pairwise_attractive(r1) - pairwise_attractive(r2),
             };
         }
@@ -158,7 +165,7 @@ fn main() {
     let mut dots = Vec::new();
 
     let mut rng = thread_rng();
-    for _ in 0..1000 {
+    for _ in 0..1400 {
         let phi = rng.sample(Uniform::new(0.0, 2.0 * std::f64::consts::PI));
         let x = rng.sample(Uniform::new(0.0, 5.0)) * V::new(phi.cos(), phi.sin());
         dots.push(Dot::new(x));
@@ -168,7 +175,7 @@ fn main() {
     let mut t = 0.0;
     let mut t_montecarlo = 0.0;
 
-    animation(move |mut painter, dt, _cursor, _left, _right| {
+    animation(move |mut painter, dt, _cursor, _left, _right, key| {
         t += dt;
 
         *painter.view = Mat4::scale(1.0 / 5.0);
@@ -178,6 +185,16 @@ fn main() {
         for a in dots.iter_mut() {
             let x = a.pos();
             painter.draw_circle(x.0 as f32, x.1 as f32, r as f32, a.state.color());
+        }
+
+        if key == Some(VirtualKeyCode::H) {
+            for i in 0..dots.len() {
+                if let State::Infected(_) = dots[i].state {
+                    dots[i].state = State::Healed(Instant::now() + Duration::from_secs_f64(5.0));
+                    println!("heal someone");
+                    break;
+                }
+            }
         }
 
         if t > t_montecarlo {
@@ -219,6 +236,11 @@ fn main() {
                         } else {
                             dots[i].state = State::Recovered;
                         }
+                    }
+                }
+                if let State::Healed(t) = dots[i].state {
+                    if t < Instant::now() {
+                        dots[i].state = State::Recovered;
                     }
                 }
             }

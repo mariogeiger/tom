@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::gl::math::{Mat4, Vec4};
 use glium::Surface;
-
+use std::collections::HashSet;
 use glium::glutin;
 
 #[derive(Clone, Copy)]
@@ -72,7 +72,7 @@ impl<'a> Painter<'a> {
 
 pub fn animation<F>(mut draw: F) -> !
 where
-    F: 'static + FnMut(Painter, f64, Option<(f64, f64)>, bool, bool),
+    F: 'static + FnMut(Painter, f64, Option<(f64, f64)>, bool, bool, Option<glutin::event::VirtualKeyCode>),
 {
     let event_loop = glutin::event_loop::EventLoop::new();
     let wb = glutin::window::WindowBuilder::new();
@@ -130,6 +130,8 @@ where
     let mut left = false;
     let mut right = false;
 
+    let mut pressed_keys = HashSet::new();
+
     let mut view = Mat4::identity();
 
     event_loop.run(move |event, _, control_flow| {
@@ -166,27 +168,50 @@ where
             Mat4::diag(1.0 / aspect_ratio, 1.0, 1.0, 1.0)
         };
 
-        match &event {
+        let mut new_key = None;
+
+        match event {
             glutin::event::Event::WindowEvent { event, .. } => match event {
                 glutin::event::WindowEvent::CursorMoved { position, .. } => {
                     let x = position.x / width as f64 * 2.0 - 1.0;
                     let y = 1.0 - position.y / height as f64 * 2.0;
-                    let c =
-                        (proj * view).inverse().unwrap() * Vec4::from_array([x as f32, y as f32, 0.0, 1.0]);
+                    let c = (proj * view).inverse().unwrap()
+                        * Vec4::from_array([x as f32, y as f32, 0.0, 1.0]);
                     cursor = Some((c.as_array()[0] as f64, c.as_array()[1] as f64));
                 }
                 glutin::event::WindowEvent::MouseInput { state, button, .. } => match button {
                     glutin::event::MouseButton::Left => {
-                        left = state == &glutin::event::ElementState::Pressed
+                        left = state == glutin::event::ElementState::Pressed
                     }
                     glutin::event::MouseButton::Right => {
-                        right = state == &glutin::event::ElementState::Pressed
+                        right = state == glutin::event::ElementState::Pressed
                     }
                     _ => (),
                 },
                 glutin::event::WindowEvent::CursorEntered { .. } => {}
                 glutin::event::WindowEvent::CursorLeft { .. } => {
                     cursor = None;
+                }
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                        glutin::event::KeyboardInput {
+                            state,
+                            virtual_keycode: Some(key),
+                            ..
+                        },
+                    ..
+                } => {
+                    match state {
+                        glutin::event::ElementState::Pressed => {
+                            if !pressed_keys.contains(&key) {
+                                new_key = Some(key);
+                            }
+                            pressed_keys.insert(key);
+                        }
+                        glutin::event::ElementState::Released => {
+                            pressed_keys.remove(&key);
+                        }
+                    }
                 }
                 _ => (),
             },
@@ -206,6 +231,7 @@ where
             cursor,
             left,
             right,
+            new_key,
         );
 
         target.finish().unwrap();

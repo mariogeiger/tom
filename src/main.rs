@@ -1,5 +1,3 @@
-#![feature(clamp)]
-
 #[macro_use]
 extern crate glium;
 extern crate rand;
@@ -9,11 +7,11 @@ mod vec2;
 
 use gl::math::Mat4;
 use gl::window::animation;
+use glium::glutin::event::VirtualKeyCode;
 use rand::{thread_rng, Rng};
 use rand_distr::{Bernoulli, Cauchy, Uniform};
 use std::time::{Duration, Instant};
 use vec2::V;
-use glium::glutin::event::VirtualKeyCode;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -64,7 +62,7 @@ impl Dot {
 
     fn pos(&self) -> V {
         let x = self.last_t.elapsed().as_secs_f64() / (self.new_t - self.last_t).as_secs_f64();
-        let x = x.clamp(0.0, 1.0);
+        let x = f64::max(f64::min(x, 1.0), 0.0);
         x * self.new_pos + (1.0 - x) * self.last_pos
     }
     fn mov(&mut self, new_pos: V, dt: f64) {
@@ -145,18 +143,14 @@ fn montecarlo(dots: &mut Vec<Dot>) {
 }
 
 fn index_twice<T>(slc: &mut [T], a: usize, b: usize) -> Option<(&mut T, &mut T)> {
-    if a == b {
+    if a == b || a >= slc.len() || b >= slc.len() {
         None
     } else {
-        if a >= slc.len() || b >= slc.len() {
-            None
-        } else {
-            // safe because a, b are in bounds and distinct
-            unsafe {
-                let ar = &mut *(slc.get_unchecked_mut(a) as *mut _);
-                let br = &mut *(slc.get_unchecked_mut(b) as *mut _);
-                Some((ar, br))
-            }
+        // safe because a, b are in bounds and distinct
+        unsafe {
+            let ar = &mut *(slc.get_unchecked_mut(a) as *mut _);
+            let br = &mut *(slc.get_unchecked_mut(b) as *mut _);
+            Some((ar, br))
         }
     }
 }
@@ -188,9 +182,9 @@ fn main() {
         }
 
         if key == Some(VirtualKeyCode::H) {
-            for i in 0..dots.len() {
-                if let State::Infected(_) = dots[i].state {
-                    dots[i].state = State::Healed(Instant::now() + Duration::from_secs_f64(5.0));
+            for a in &mut dots {
+                if let State::Infected(_) = a.state {
+                    a.state = State::Healed(Instant::now() + Duration::from_secs_f64(5.0));
                     println!("heal someone");
                     break;
                 }

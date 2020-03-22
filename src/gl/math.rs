@@ -224,7 +224,7 @@ impl Vec3 {
     }
 
     pub fn dot(a: Vec3, b: Vec3) -> f32 {
-        return a.0[0] * b.0[0] + a.0[1] * b.0[1] + a.0[2] * b.0[2];
+        a.0[0] * b.0[0] + a.0[1] * b.0[1] + a.0[2] * b.0[2]
     }
 
     pub fn extern_prod(a: Vec3, b: Vec3) -> Mat3 {
